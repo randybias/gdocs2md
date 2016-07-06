@@ -5,19 +5,21 @@ A simple Google Apps script to convert a properly formatted Google Drive Documen
 
 ## Usage
 
-  * Adding this script to your doc (once per doc):
-    * Open your Google Drive document (http://drive.google.com)
-    * Tools -> Script Manager > New
-    * Select "Blank Project", then paste this code in and save.
-    * Clear the myFunction() default empty function and paste the contents of [converttomarkdown.gapps](https://raw.github.com/mangini/gdocs2md/master/converttomarkdown.gapps) into the code editor
-    * File -> Save
-    
-  * Running the script (run as many times as you want):
-    - Tools > Script Manager
-    - Select "ConvertToMarkdown" function.
-    - Click Run button (First run will require you to authorize it. Authorize and run again)
-    - Converted doc with images attached will be emailed to you. Subject will be "[MARKDOWN_MAKER]...".
+  * This script must be attached to each document that you wish to convert
 
+  * Add this script to your document:
+    * Tools > Script editor
+    * From the Script editor
+      * Select File > New > Project
+      * Paste this code in and Save
+      * When prompted for a project name, use "ConvertToMarkdown"
+    * Select Publish > Test as add-on...
+
+  * Running the script:
+    * Tools > Script Manager
+    * Select "ConvertToMarkdown" function.
+    * Click Run button.
+    * Converted doc will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
 
 ## Interpreted formats
   * Text:
@@ -37,7 +39,7 @@ A simple Google Apps script to convert a properly formatted Google Drive Documen
       * **UPDATED**: blocks of text delimited by "--- source code" or "--- src" and "---" are converted to `<pre></pre>`
       * **NEW**: blocks of text delimited by "--- source pretty" or "--- srcp" and "---" are converted to `<pre class="prettyprint"></pre>`
     * Tables:
-      * **NEW**: Simple `<table>` processing
+      * **NEW**: Simple `markdown-style table` processing
   * "--- jsperf `<testID>`" is replaced by an iframe that shows an interactive chart of a JSPerf test. The `<testID>` is the last part of the URL of the Browserscope anchor in your JSPerf test. Something like `"agt1YS1wcm9maWxlcnINCxIEVGVzdBjlm_EQDA"` in the URL `http://www.browserscope.org/user/tests/table/agt1YS1wcm9maWxlcnINCxIEVGVzdBjlm_EQDA`
  
 
