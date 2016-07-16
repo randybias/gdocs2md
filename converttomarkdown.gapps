@@ -1,31 +1,60 @@
 /*
-Usage: 
-  Adding this script to your doc: 
-    - Tools > Script Manager > New
-    - Select "Blank Project", then paste this code in and save.
+Usage:
+  This script must be attached to each document that you wish to convert
+  Add this script to your document:
+    - Tools > Script editor
+    - From the Script editor
+      - Select File > New > Project
+      - Paste this code in and Save
+      - When prompted for a project name, use "ConvertToMarkdown"
+    - Select Publish > Test as add-on...
   Running the script:
     - Tools > Script Manager
     - Select "ConvertToMarkdown" function.
     - Click Run button.
     - Converted doc will be mailed to you. Subject will be "[MARKDOWN_MAKER]...".
+
+Helpful links:
+  - https://developers.google.com/apps-script/reference/document/text
 */
 
+////////////////////////////////////////////////////////////////////////////////
+// ConvertToMarkdown()
+////////////////////////////////////////////////////////////////////////////////
 function ConvertToMarkdown() {
+
+  var sendEmail = true;
+  Logger.log("sendEmail: " + sendEmail);
+
+  var jekyllFrontMatter = "---\n";
+  var docName = DocumentApp.getActiveDocument().getName();
+  var docNameSlug = DocumentApp.getActiveDocument().getName().replace(/\s+/g, "-").toLowerCase();
+  var old$ = ' ';
+  var new$ = '-';
+  jekyllFrontMatter += "layout: post\n";
+  jekyllFrontMatter += "title: \""+docName+"\"\n";
+  jekyllFrontMatter += "slug: "+docNameSlug+"\n";
+  jekyllFrontMatter += "author: <Enter Author Name>\n";
+  jekyllFrontMatter += "date: "+Utilities.formatDate(new Date(), "GMT", "yyyy-MM-dd HH:mm:ss")+"\n";
+  var saveName = Utilities.formatDate(new Date(), "GMT", "yyyy-MM-dd")+"-"+docNameSlug+".md";
+  jekyllFrontMatter += "\n---\n"
+
   var numChildren = DocumentApp.getActiveDocument().getActiveSection().getNumChildren();
-  var text = "";
+  var text = jekyllFrontMatter;
   var inSrc = false;
   var inClass = false;
   var globalImageCounter = 0;
-  var globalListCounters = {};
+  var globalListCounter = {};
+  var globalFootnoteCounter = [];
   // edbacher: added a variable for indent in src <pre> block. Let style sheet do margin.
   var srcIndent = "";
-  
+
   var attachments = [];
-  
+
   // Walk through all the child elements of the doc.
   for (var i = 0; i < numChildren; i++) {
     var child = DocumentApp.getActiveDocument().getActiveSection().getChild(i);
-    var result = processParagraph(i, child, inSrc, globalImageCounter, globalListCounters);
+    var result = processParagraph(i, child, inSrc, globalImageCounter, globalListCounter, globalFootnoteCounter);
     globalImageCounter += (result && result.images) ? result.images.length : 0;
     if (result!==null) {
       if (result.sourcePretty==="start" && !inSrc) {
@@ -53,7 +82,7 @@ function ConvertToMarkdown() {
       } else if (result.text && result.text.length>0) {
         text+=result.text+"\n\n";
       }
-      
+
       if (result.images && result.images.length>0) {
         for (var j=0; j<result.images.length; j++) {
           attachments.push( {
@@ -65,67 +94,124 @@ function ConvertToMarkdown() {
     } else if (inSrc) { // support empty lines inside source code
       text+='\n';
     }
-      
+
   }
-  
-  attachments.push({"fileName":DocumentApp.getActiveDocument().getName()+".md", "mimeType": "text/plain", "content": text});
-  
-  MailApp.sendEmail(Session.getActiveUser().getEmail(), 
-                    "[MARKDOWN_MAKER] "+DocumentApp.getActiveDocument().getName(), 
-                    "Your converted markdown document is attached (converted from "+DocumentApp.getActiveDocument().getUrl()+")"+
-                    "\n\nDon't know how to use the format options? See http://github.com/mangini/gdocs2md\n",
-                    { "attachments": attachments });
+
+  // Add footnotes to the end of the doc
+  for (var j=0; j < globalFootnoteCounter.length; j++) {
+    text+="[" + (j + 1) + "] "+globalFootnoteCounter[j]+"\n\n";
+  }
+
+  attachments.push({"fileName":saveName, "mimeType": "text/plain", "content": text});
+
+  if (sendEmail === true) {
+    MailApp.sendEmail(
+      Session.getActiveUser().getEmail(),
+      "[MARKDOWN_MAKER] "+DocumentApp.getActiveDocument().getName(),
+      "Your converted markdown document is attached (converted from "+DocumentApp.getActiveDocument().getUrl()+")"+
+      "\n\nDon't know how to use the format options? See http://github.com/mangini/gdocs2md\n",
+      { "attachments": attachments }
+    );
+  }
+  else {
+    Logger.log("--------------------------------------------------------------------------------");
+    Logger.log("Session.getActiveUser().getEmail(): " + Session.getActiveUser().getEmail());
+    Logger.log("DocumentApp.getActiveDocument().getName(): " + DocumentApp.getActiveDocument().getName());
+    Logger.log("DocumentApp.getActiveDocument().getUrl(): " + DocumentApp.getActiveDocument().getUrl());
+    Logger.log("saveName: " + saveName);
+    Logger.log("--------------------------------------------------------------------------------");
+    Logger.log("jekyllFrontMatter: " + jekyllFrontMatter);
+    Logger.log("--------------------------------------------------------------------------------");
+    Logger.log("text: " + text);
+    Logger.log("--------------------------------------------------------------------------------");
+    for (var j=0; j < globalFootnoteCounter.length; j++) {
+      Logger.log("globalFootnoteCounter[" + j + "]: " + globalFootnoteCounter[j]);
+    }
+    Logger.log("--------------------------------------------------------------------------------");
+  }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// escapeHTML(text)
+////////////////////////////////////////////////////////////////////////////////
 function escapeHTML(text) {
   return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Process each child element (not just paragraphs).
-function processParagraph(index, element, inSrc, imageCounter, listCounters) {
+////////////////////////////////////////////////////////////////////////////////
+// processParagraph()
+////////////////////////////////////////////////////////////////////////////////
+function processParagraph(index, element, inSrc, imageCounter, listCounters, footnoteCounter) {
+
+  //Logger.log("processParagraph()");
+  //Logger.log("  --index...................: " + index);
+  //Logger.log("  --element.................: " + element);
+  //Logger.log("  --element.getNumChildren(): " + element.getNumChildren());
+  //Logger.log("  --element.getType().......:" + element.getType());
+  //Logger.log("  --inSrc...................:" + inSrc);
+  //Logger.log("  --imageCounter............:" + imageCounter);
+  //Logger.log("  --listCounters............:" + JSON.stringify(listCounters, null, 4));
+  //Logger.log("");
+
   // First, check for things that require no processing.
   if (element.getNumChildren()==0) {
     return null;
-  }  
+  }
+
   // Punt on TOC.
   if (element.getType() === DocumentApp.ElementType.TABLE_OF_CONTENTS) {
     return {"text": "[[TOC]]"};
   }
-  
+
   // Set up for real results.
   var result = {};
   var pOut = "";
   var textElements = [];
+  ////////////////////////////////////////////////////////////////////////////////
+  //TODO: Add document name to the prefix to keep image names unique
+  ////////////////////////////////////////////////////////////////////////////////
   var imagePrefix = "image_";
-  
+
+  ////////////////////////////////////////////////////////////////////////////////
+  //TODO: Output table using Markdown syntax
+  ////////////////////////////////////////////////////////////////////////////////
+
   // Handle Table elements. Pretty simple-minded now, but works for simple tables.
-  // Note that Markdown does not process within block-level HTML, so it probably 
+  // Note that Markdown does not process within block-level HTML, so it probably
   // doesn't make sense to add markup within tables.
   if (element.getType() === DocumentApp.ElementType.TABLE) {
-    textElements.push("<table>\n");
+//    textElements.push("<table>\n");
     var nCols = element.getChild(0).getNumCells();
     for (var i = 0; i < element.getNumChildren(); i++) {
-      textElements.push("  <tr>\n");
+      textElements.push("| ");
       // process this row
       for (var j = 0; j < nCols; j++) {
-        textElements.push("    <td>" + element.getChild(i).getChild(j).getText() + "</td>\n");
+//        textElements.push("    <td>" + element.getChild(i).getChild(j).getText() + "</td>\n");
+        textElements.push(element.getChild(i).getChild(j).getText() + " | ");
       }
-      textElements.push("  </tr>\n");
+      textElements.push(" \n");
     }
-    textElements.push("</table>\n");
+//    textElements.push("</table>\n");
   }
-  
-  // Process various types (ElementType).
+
+  ////////////////////////////////////////////////////////////////////////////////
+  // Process each ElementType
+  ////////////////////////////////////////////////////////////////////////////////
   for (var i = 0; i < element.getNumChildren(); i++) {
+
     var t=element.getChild(i).getType();
-    
+
     if (t === DocumentApp.ElementType.TABLE_ROW) {
-      // do nothing: already handled TABLE_ROW
-    } else if (t === DocumentApp.ElementType.TEXT) {
+      // Do nothing: already handled TABLE_ROW
+    }
+    else if (t === DocumentApp.ElementType.TEXT) {
+      // Handle text
       var txt=element.getChild(i);
       pOut += txt.getText();
       textElements.push(txt);
-    } else if (t === DocumentApp.ElementType.INLINE_IMAGE) {
+    }
+    else if (t === DocumentApp.ElementType.INLINE_IMAGE) {
+      // Handle inline image
       result.images = result.images || [];
       var contentType = element.getChild(i).getBlob().getContentType();
       var extension = "";
@@ -142,26 +228,46 @@ function processParagraph(index, element, inSrc, imageCounter, listCounters) {
       imageCounter++;
       textElements.push('![image alt text]('+name+')');
       result.images.push( {
-        "bytes": element.getChild(i).getBlob().getBytes(), 
-        "type": contentType, 
+        "bytes": element.getChild(i).getBlob().getBytes(),
+        "type": contentType,
         "name": name});
-    } else if (t === DocumentApp.ElementType.PAGE_BREAK) {
-      // ignore
-    } else if (t === DocumentApp.ElementType.HORIZONTAL_RULE) {
+    }
+    else if (t === DocumentApp.ElementType.PAGE_BREAK) {
+      // Handle page break
+      // Ignore
+    }
+    else if (t === DocumentApp.ElementType.HORIZONTAL_RULE) {
+      // Handle horizontal rule
       textElements.push('* * *\n');
-    } else if (t === DocumentApp.ElementType.FOOTNOTE) {
-      textElements.push(' (NOTE: '+element.getChild(i).getFootnoteContents().getText()+')');
-    } else {
+    }
+    else if (t === DocumentApp.ElementType.FOOTNOTE) {
+      // Handle footnote
+      // Footnotes are held in an array and printed at the end of the document
+
+
+
+      ////////////////////////////////////////////////////////////////////////////////
+      //TODO: Support Markdown style footnotes
+      ////////////////////////////////////////////////////////////////////////////////
+      // textElements.push(' (NOTE: '+element.getChild(i).getFootnoteContents().getText()+')');
+      // textElements.push(element.getChild(i).getFootnoteContents().getText()+'[1] ');
+      textElements.push("[" + (footnoteCounter.length + 1) + "] ");
+      footnoteCounter.push( element.getChild(i).getFootnoteContents().getText() );
+
+
+    }
+    else {
+      // Handle unknown ElementType
       throw "Paragraph "+index+" of type "+element.getType()+" has an unsupported child: "
       +t+" "+(element.getChild(i)["getText"] ? element.getChild(i).getText():'')+" index="+index;
     }
   }
 
-  if (textElements.length==0) {
+  if (textElements.length == 0) {
     // Isn't result empty now?
     return result;
   }
-  
+
   // evb: Add source pretty too. (And abbreviations: src and srcp.)
   // process source code block:
   if (/^\s*---\s+srcp\s*$/.test(pOut) || /^\s*---\s+source pretty\s*$/.test(pOut)) {
@@ -182,7 +288,8 @@ function processParagraph(index, element, inSrc, imageCounter, listCounters) {
   } else {
 
     prefix = findPrefix(inSrc, element, listCounters);
-  
+
+    ////////////////////////////////////////
     var pOut = "";
     for (var i=0; i<textElements.length; i++) {
       pOut += processTextElement(inSrc, textElements[i]);
@@ -190,14 +297,17 @@ function processParagraph(index, element, inSrc, imageCounter, listCounters) {
 
     // replace Unicode quotation marks
     pOut = pOut.replace('\u201d', '"').replace('\u201c', '"');
- 
+
     result.text = prefix+pOut;
   }
-  
+
   return result;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// findPrefix()
 // Add correct prefix to list items.
+////////////////////////////////////////////////////////////////////////////////
 function findPrefix(inSrc, element, listCounters) {
   var prefix="";
   if (!inSrc) {
@@ -238,31 +348,63 @@ function findPrefix(inSrc, element, listCounters) {
   return prefix;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// processTextElement()
+////////////////////////////////////////////////////////////////////////////////
 function processTextElement(inSrc, txt) {
+
+  Logger.log("processTextElement()");
+  Logger.log("  --inSrc: " + inSrc);
+  Logger.log("  --txt:" + txt.getText());
+
+  // Still unsure when this case is true
   if (typeof(txt) === 'string') {
+    Logger.log("  --typeof(txt) === 'string'");
     return txt;
   }
-  
+
   var pOut = txt.getText();
   if (! txt.getTextAttributeIndices) {
+    Logger.log("  --! txt.getTextAttributeIndices");
     return pOut;
   }
-  
-  var attrs=txt.getTextAttributeIndices();
-  var lastOff=pOut.length;
 
-  for (var i=attrs.length-1; i>=0; i--) {
-    var off=attrs[i];
-    var url=txt.getLinkUrl(off);
-    var font=txt.getFontFamily(off);
-    if (url) {  // start of link
+  var attrs   = txt.getTextAttributeIndices();
+  var lastOff = pOut.length;
+
+  Logger.log("  --attrs: " + attrs);
+  Logger.log("  --lastOff: " + lastOff);
+
+  for (var i = attrs.length-1; i >= 0; i--) {
+
+    var off    = attrs[i];
+    var url    = txt.getLinkUrl(off);
+    var urllen = 0;
+    var font   = txt.getFontFamily(off);
+
+    if (url) {
+
+      // Increase by 4 to cover markdown characters "[]()"
+      var urllen = url.length + 4;
+
+      // We have found a link at this offset
+      Logger.log("  --url: " + url);
+      Logger.log("  --urllen: " + urllen);
+
+
       if (i>=1 && attrs[i-1]==off-1 && txt.getLinkUrl(attrs[i-1])===url) {
         // detect links that are in multiple pieces because of errors on formatting:
         i-=1;
         off=attrs[i];
         url=txt.getLinkUrl(off);
       }
-      pOut=pOut.substring(0, off)+'['+pOut.substring(off, lastOff)+']('+url+')'+pOut.substring(lastOff);
+
+      // What if we turn links into regular text here?
+
+      pOut = pOut.substring(0, off) + '[' + pOut.substring(off, lastOff) + '](' + url + ')' + pOut.substring(lastOff);
+      //Logger.log("  ----pOut.: " + pOut);
+
+
     } else if (font) {
       if (!inSrc && font===font.COURIER_NEW) {
         while (i>=1 && txt.getFontFamily(attrs[i-1]) && txt.getFontFamily(attrs[i-1])===font.COURIER_NEW) {
@@ -273,17 +415,38 @@ function processTextElement(inSrc, txt) {
         pOut=pOut.substring(0, off)+'`'+pOut.substring(off, lastOff)+'`'+pOut.substring(lastOff);
       }
     }
+
+    ////////////////////////////////////////
+    // Handle Bold and Italic
+    ////////////////////////////////////////
+
     if (txt.isBold(off)) {
-      var d1 = d2 = "**";
+
+      var d1 = "**";
+      var d2 = "**";
+
+      // Is the text bold and italic at this offset
       if (txt.isItalic(off)) {
-        // edbacher: changed this to handle bold italic properly.
-        d1 = "**_"; d2 = "_**";
+
+        d1 = "**_";
+        d2 = "_**";
+
       }
-      pOut=pOut.substring(0, off)+d1+pOut.substring(off, lastOff)+d2+pOut.substring(lastOff);
-    } else if (txt.isItalic(off)) {
-      pOut=pOut.substring(0, off)+'*'+pOut.substring(off, lastOff)+'*'+pOut.substring(lastOff);
+
+      pOut = pOut.substring(0, off) + d1 + pOut.substring(off, lastOff + urllen) + d2 + pOut.substring(lastOff + urllen);
+
     }
-    lastOff=off;
+    else if (txt.isItalic(off)) {
+
+      var d1 = "*";
+      var d2 = "*";
+
+      pOut = pOut.substring(0, off) + d1 + pOut.substring(off, lastOff + urllen) + d2 + pOut.substring(lastOff + urllen);
+
+    }
+
+    lastOff = off;
   }
+
   return pOut;
 }
